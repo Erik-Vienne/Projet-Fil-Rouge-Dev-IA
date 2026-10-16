@@ -48,8 +48,8 @@ jobs:
       - name: Créer et remplir la base MySQL de test
         run: |
           mysql --host=127.0.0.1 --user=root --password=root < sql/00_mysql_base_et_utilisateur.sql
-          mysql --host=127.0.0.1 --user=root --password=root < sql/01_schema.sql
-          mysql --host=127.0.0.1 --user=root --password=root < sql/02_donnees.sql
+          mysql --host=127.0.0.1 --user=root --password=root --database=catalogue < sql/01_schema.sql
+          mysql --host=127.0.0.1 --user=root --password=root --database=catalogue < sql/02_donnees.sql
 
       - name: Exécuter les tests et générer le rapport
         run: python -m pytest --junitxml=test-results.xml

@@ -51,8 +51,8 @@ steps:
       fi
 
       docker exec -i mysql-ci mysql --user=root --password=root < sql/00_mysql_base_et_utilisateur.sql
-      docker exec -i mysql-ci mysql --user=root --password=root < sql/01_schema.sql
-      docker exec -i mysql-ci mysql --user=root --password=root < sql/02_donnees.sql
+      docker exec -i mysql-ci mysql --user=root --password=root --database=catalogue < sql/01_schema.sql
+      docker exec -i mysql-ci mysql --user=root --password=root --database=catalogue < sql/02_donnees.sql
     displayName: Démarrer et initialiser MySQL de test
 
   - script: python -m pytest --junitxml=test-results.xml
