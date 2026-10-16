@@ -2,10 +2,12 @@
 
 import argparse
 import json
+import logging
 import math
 import os
 import re
 import sys
+import time
 import unicodedata
 from pathlib import Path
 
@@ -14,6 +16,13 @@ from dotenv import load_dotenv
 from openai import APIError, OpenAI
 from pypdf import PdfReader
 from pypdf.errors import PdfReadError
+
+from observabilite import (
+    configurer_logs,
+    contexte_requete,
+    enregistrer_outil,
+    journaliser,
+)
 
 
 RACINE = Path(__file__).resolve().parent
@@ -243,14 +252,68 @@ class Agent(CatalogueMySQL):
         self.deployment = deployment
         self.morceaux = morceaux
         self.messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+        self.derniere_consommation = None
+        self.derniere_reponse_en_cache = False
+        self.reponses_cache = {}
 
     def rechercher_fiches(self, recherche="", fournisseur=""):
         return chercher_fiches(self.morceaux, recherche, fournisseur)
 
     def nouvelle_conversation(self):
         self.messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+        self.derniere_consommation = None
+        self.derniere_reponse_en_cache = False
+        self.reponses_cache.clear()
 
     def repondre(self, question):
+        configurer_logs()
+        debut = time.perf_counter()
+        statut = "error"
+        with contexte_requete() as contexte:
+            try:
+                reponse = self._repondre(question)
+                statut = "success"
+                return reponse
+            except Exception as erreur:
+                journaliser(
+                    "request_failed",
+                    niveau=logging.ERROR,
+                    status=statut,
+                    deployment=self.deployment,
+                    tools=contexte.outils,
+                    duration_ms=round((time.perf_counter() - debut) * 1000, 2),
+                    error_type=type(erreur).__name__,
+                )
+                raise
+            finally:
+                if statut == "success":
+                    champs = {
+                        "status": statut,
+                        "deployment": self.deployment,
+                        "tools": contexte.outils,
+                        "duration_ms": round((time.perf_counter() - debut) * 1000, 2),
+                        "cached": self.derniere_reponse_en_cache,
+                    }
+                    if self.derniere_consommation is not None:
+                        champs.update(self.derniere_consommation)
+                    journaliser("request_completed", **champs)
+
+    def _repondre(self, question):
+        self.derniere_consommation = None
+        self.derniere_reponse_en_cache = False
+        cle_cache = normaliser(question)
+        if cle_cache and cle_cache in self.reponses_cache:
+            self.derniere_reponse_en_cache = True
+            self.derniere_consommation = {
+                "tokens_entree": 0,
+                "tokens_sortie": 0,
+                "tokens_total": 0,
+            }
+            return self.reponses_cache[cle_cache]
+
+        tokens_entree = 0
+        tokens_sortie = 0
+        consommation_complete = True
         messages = [*self.messages, {"role": "user", "content": question}]
         outils = {
             "rechercher_produits": self.rechercher_produits,
@@ -264,16 +327,37 @@ class Agent(CatalogueMySQL):
                 tools=DESCRIPTIONS,
                 tool_choice="auto" if etape < MAX_ETAPES else "none",
             )
+            usage = getattr(reponse, "usage", None)
+            tokens_prompt = getattr(usage, "prompt_tokens", None)
+            tokens_completion = getattr(usage, "completion_tokens", None)
+            if (
+                type(tokens_prompt) is int and tokens_prompt >= 0
+                and type(tokens_completion) is int and tokens_completion >= 0
+            ):
+                tokens_entree += tokens_prompt
+                tokens_sortie += tokens_completion
+            else:
+                consommation_complete = False
             message = reponse.choices[0].message
             if not message.tool_calls:
                 if not message.content or not message.content.strip():
                     raise ValueError("Le modele a renvoye une reponse vide.")
                 messages.append({"role": "assistant", "content": message.content})
                 self.messages = messages
+                if consommation_complete:
+                    self.derniere_consommation = {
+                        "tokens_entree": tokens_entree,
+                        "tokens_sortie": tokens_sortie,
+                        "tokens_total": tokens_entree + tokens_sortie,
+                    }
+                if cle_cache:
+                    self.reponses_cache[cle_cache] = message.content
                 return message.content
             messages.append(message.model_dump(exclude_none=True))
             for appel in message.tool_calls:
                 try:
+                    if appel.function.name in outils:
+                        enregistrer_outil(appel.function.name)
                     arguments = json.loads(appel.function.arguments)
                     valider_arguments(appel.function.name, arguments)
                     resultat = outils[appel.function.name](**arguments)
@@ -281,7 +365,12 @@ class Agent(CatalogueMySQL):
                     resultat = {"erreur": str(erreur)}
                 except mysql.connector.Error as erreur:
                     # Ne transmet pas les identifiants ou l'adresse du serveur au modele.
-                    print(f"Erreur MySQL (code {erreur.errno}).", file=sys.stderr)
+                    journaliser(
+                        "mysql_tool_error",
+                        niveau=logging.WARNING,
+                        error_type=type(erreur).__name__,
+                        error_code=erreur.errno,
+                    )
                     resultat = {"erreur": "Acces MySQL impossible. Aucune donnee disponible."}
                 messages.append({
                     "role": "tool",

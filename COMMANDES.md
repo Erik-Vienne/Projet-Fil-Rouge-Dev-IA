@@ -42,7 +42,15 @@ lancer l'interface depuis la racine du projet :
 Le fil conserve le contexte pendant la session, les réponses sont rendues en
 Markdown et la barre latérale permet de démarrer une nouvelle conversation.
 Les appels d'outils effectués pour chaque réponse peuvent être consultés sous
-celle-ci.
+celle-ci. Le nombre de tokens d'entrée et de sortie, cumulé sur les appels de
+modèle nécessaires à la réponse, est également affiché. Une question déjà posée
+dans la conversation réutilise sa réponse après normalisation des accents, de la
+casse et de la ponctuation, sans appeler le modèle ni les outils. Pour obtenir
+des données actualisées, démarrez une nouvelle conversation, ce qui efface aussi
+ce cache.
+Les événements opérationnels sont écrits en JSON sur `stderr` (collectable par
+l'hébergement) ; configurez leur niveau avec `LOG_LEVEL` dans `.env`. Le texte
+des questions et les arguments d'outils ne sont pas journalisés.
 
 Exemples de conversation :
 « Quels produits sont en rupture ? », puis « Quels sont les délais de leurs fournisseurs ? ».

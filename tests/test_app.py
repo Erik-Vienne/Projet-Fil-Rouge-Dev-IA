@@ -1,6 +1,11 @@
 import unittest
+from unittest.mock import patch
 
-from app import extraire_appels_outils
+from app import (
+    afficher_consommation,
+    afficher_origine_reponse,
+    extraire_appels_outils,
+)
 
 
 class AppTests(unittest.TestCase):
@@ -39,6 +44,27 @@ class AppTests(unittest.TestCase):
             "nom": "rechercher_fiches",
             "arguments": {"arguments": "{"},
         }])
+
+    def test_affiche_la_consommation_de_tokens_sans_tarif(self):
+        with patch("app.st.caption") as caption:
+            afficher_consommation({
+                "tokens_entree": 1000, "tokens_sortie": 500, "tokens_total": 1500,
+            })
+        caption.assert_called_once_with(
+            "Tokens : 1 500 au total (1 000 en entrée, 500 en sortie)"
+        )
+
+    def test_signale_une_consommation_indisponible(self):
+        with patch("app.st.caption") as caption:
+            afficher_consommation(None)
+        caption.assert_called_once_with("Consommation de tokens indisponible.")
+
+    def test_signale_une_reponse_reprise_de_l_historique(self):
+        with patch("app.st.caption") as caption:
+            afficher_origine_reponse(True)
+        caption.assert_called_once_with(
+            "Réponse reprise de l’historique, sans nouvel appel au modèle."
+        )
 
 
 if __name__ == "__main__":

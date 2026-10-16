@@ -1,6 +1,9 @@
 import json
+import logging
+import os
 import tempfile
 import unittest
+from io import StringIO
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
@@ -9,6 +12,7 @@ import mysql.connector
 from pypdf import PdfWriter
 
 import agent
+from observabilite import FormateurJSON, LOGGER
 
 
 def appel_outil(nom, arguments, identifiant):
@@ -18,7 +22,7 @@ def appel_outil(nom, arguments, identifiant):
     )
 
 
-def reponse_modele(contenu=None, appels=None):
+def reponse_modele(contenu=None, appels=None, usage=None):
     message = MagicMock()
     message.content = contenu
     message.tool_calls = appels
@@ -37,7 +41,7 @@ def reponse_modele(contenu=None, appels=None):
             for appel in appels or []
         ],
     }
-    return SimpleNamespace(choices=[SimpleNamespace(message=message)])
+    return SimpleNamespace(choices=[SimpleNamespace(message=message)], usage=usage)
 
 
 class DocumentsTests(unittest.TestCase):
@@ -161,6 +165,76 @@ class AgentTests(unittest.TestCase):
         self.assertIn("NovaTech.pdf", outils[1]["content"])
         self.assertEqual(self.agent.messages[-1]["content"], texte)
 
+    def test_agrege_les_tokens_de_tous_les_appels_modele(self):
+        self.client.chat.completions.create.side_effect = [
+            reponse_modele(
+                appels=[appel_outil("rechercher_fiches", {}, "pdf")],
+                usage=SimpleNamespace(prompt_tokens=100, completion_tokens=20),
+            ),
+            reponse_modele(
+                "Livraison sous 3 jours.",
+                usage=SimpleNamespace(prompt_tokens=150, completion_tokens=10),
+            ),
+        ]
+        self.assertEqual(self.agent.repondre("Quel délai ?"), "Livraison sous 3 jours.")
+        self.assertEqual(self.agent.derniere_consommation, {
+            "tokens_entree": 250,
+            "tokens_sortie": 30,
+            "tokens_total": 280,
+        })
+
+    def test_logs_json_associent_usage_sans_question_ni_detail_erreur(self):
+        sortie = StringIO()
+        handler = logging.StreamHandler(sortie)
+        handler.setFormatter(FormateurJSON())
+        LOGGER.addHandler(handler)
+        try:
+            with patch.dict(os.environ, {"LOG_LEVEL": "INFO"}):
+                self.client.chat.completions.create.return_value = reponse_modele(
+                    "Réponse privée",
+                    usage=SimpleNamespace(prompt_tokens=12, completion_tokens=4),
+                )
+                self.agent.repondre("Question confidentielle")
+                self.client.chat.completions.create.side_effect = RuntimeError(
+                    "Détail privé"
+                )
+                with self.assertRaisesRegex(RuntimeError, "Détail privé"):
+                    self.agent.repondre("Autre question confidentielle")
+        finally:
+            LOGGER.removeHandler(handler)
+
+        evenements = [json.loads(ligne) for ligne in sortie.getvalue().splitlines()]
+        succes, echec = evenements
+        self.assertEqual(succes["evenement"], "request_completed")
+        self.assertEqual(succes["status"], "success")
+        self.assertEqual(succes["tokens_total"], 16)
+        self.assertTrue(succes["request_id"])
+        self.assertEqual(echec["evenement"], "request_failed")
+        self.assertEqual(echec["error_type"], "RuntimeError")
+        self.assertNotIn("Question confidentielle", sortie.getvalue())
+        self.assertNotIn("Autre question confidentielle", sortie.getvalue())
+        self.assertNotIn("Détail privé", sortie.getvalue())
+        self.assertNotIn("Réponse privée", sortie.getvalue())
+
+    def test_question_repetee_reutilise_la_reponse_sans_appel_modele(self):
+        self.client.chat.completions.create.return_value = reponse_modele(
+            "Livraison sous 3 jours.",
+            usage=SimpleNamespace(prompt_tokens=100, completion_tokens=20),
+        )
+        self.assertEqual(self.agent.repondre("Quel délai ?"), "Livraison sous 3 jours.")
+        historique_initial = list(self.agent.messages)
+
+        self.assertEqual(self.agent.repondre("QUEL DELAI!"), "Livraison sous 3 jours.")
+
+        self.client.chat.completions.create.assert_called_once()
+        self.assertEqual(self.agent.messages, historique_initial)
+        self.assertTrue(self.agent.derniere_reponse_en_cache)
+        self.assertEqual(self.agent.derniere_consommation, {
+            "tokens_entree": 0,
+            "tokens_sortie": 0,
+            "tokens_total": 0,
+        })
+
     def test_erreur_mysql_explicite_sans_identifiants(self):
         self.client.chat.completions.create.side_effect = [
             reponse_modele(appels=[appel_outil("rechercher_produits", {}, "bd")]),
@@ -193,6 +267,7 @@ class AgentTests(unittest.TestCase):
         self.assertEqual(len(self.agent.messages), 1)
 
     def test_nouvelle_conversation_reinitialise_historique(self):
+        self.agent.reponses_cache["question"] = "Reponse"
         self.agent.messages.extend([
             {"role": "user", "content": "Question"},
             {"role": "assistant", "content": "Reponse"},
@@ -201,6 +276,7 @@ class AgentTests(unittest.TestCase):
         self.assertEqual(self.agent.messages, [
             {"role": "system", "content": agent.SYSTEM_PROMPT}
         ])
+        self.assertEqual(self.agent.reponses_cache, {})
 
 
 if __name__ == "__main__":

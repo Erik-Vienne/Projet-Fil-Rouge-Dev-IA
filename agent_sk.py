@@ -3,9 +3,11 @@
 import argparse
 import asyncio
 import json
+import logging
 import math
 import os
 import sys
+import time
 from enum import Enum
 from typing import Annotated
 
@@ -31,6 +33,12 @@ from agent import (
     charger_documents,
 )
 from rag_local import IndexLocal, charger_modele
+from observabilite import (
+    configurer_logs,
+    contexte_requete,
+    enregistrer_outil,
+    journaliser,
+)
 
 
 def verifier_nombre(valeur, nom, entier=False):
@@ -59,7 +67,12 @@ class CataloguePlugin:
         try:
             resultat = await asyncio.to_thread(fonction, **arguments)
         except mysql.connector.Error as erreur:
-            print(f"Erreur MySQL (code {erreur.errno}).", file=sys.stderr)
+            journaliser(
+                "mysql_tool_error",
+                niveau=logging.WARNING,
+                error_type=type(erreur).__name__,
+                error_code=erreur.errno,
+            )
             resultat = {"erreur": "Acces MySQL impossible. Aucune donnee disponible."}
         return json.dumps(resultat, ensure_ascii=False, default=str)
 
@@ -69,6 +82,7 @@ class CataloguePlugin:
         mot_cle: Annotated[str, "Partie du libelle ; vide pour tous les produits"] = "",
         categorie: Annotated[str, "Partie de la categorie ; vide sans filtre"] = "",
     ) -> str:
+        enregistrer_outil("rechercher_produits")
         return await self._executer(
             self.catalogue.rechercher_produits, mot_cle=mot_cle, categorie=categorie
         )
@@ -77,6 +91,7 @@ class CataloguePlugin:
     async def produits_fournisseur(
         self, fournisseur: Annotated[str, "Nom ou partie du nom du fournisseur"]
     ) -> str:
+        enregistrer_outil("produits_fournisseur")
         if not fournisseur.strip():
             raise ValueError("Le nom du fournisseur est obligatoire.")
         return await self._executer(
@@ -87,6 +102,7 @@ class CataloguePlugin:
     async def stock_faible(
         self, seuil: Annotated[int, "Seuil entier positif ou nul ; 0 pour les ruptures"] = 10
     ) -> str:
+        enregistrer_outil("stock_faible")
         verifier_nombre(seuil, "seuil", entier=True)
         return await self._executer(self.catalogue.rechercher_produits, stock_max=seuil)
 
@@ -96,6 +112,7 @@ class CataloguePlugin:
         prix_min: Annotated[float, "Prix minimum en euros HT, positif ou nul"],
         prix_max: Annotated[float, "Prix maximum en euros HT, au moins egal au minimum"],
     ) -> str:
+        enregistrer_outil("fourchette_prix")
         verifier_nombre(prix_min, "prix_min")
         verifier_nombre(prix_max, "prix_max")
         if prix_min > prix_max:
@@ -113,6 +130,7 @@ class CataloguePlugin:
             Regroupement, "Colonne de regroupement autorisee : categorie ou fournisseur"
         ] = Regroupement.CATEGORIE,
     ) -> str:
+        enregistrer_outil("statistiques")
         return await self._executer(
             self.catalogue.statistiques, regroupement=Regroupement(regroupement).value
         )
@@ -133,6 +151,7 @@ class FichesPlugin:
         fournisseur: Annotated[str, "Nom du fournisseur ou reference FRN"] = "",
         nombre: Annotated[int, "Maximum d'extraits semantiques, de 1 a 20"] = 5,
     ) -> str:
+        enregistrer_outil("rechercher_fiches")
         return json.dumps(
             await asyncio.to_thread(self.index.rechercher, recherche, fournisseur, nombre),
             ensure_ascii=False,
@@ -159,19 +178,44 @@ puis interroge les fiches en filtrant sur ce fournisseur.
 """)
 
     async def repondre(self, question: str) -> str:
-        if not question.strip():
-            raise ValueError("La question ne peut pas etre vide.")
-        # SK ajoute les appels et resultats d'outils a cet historique pendant l'invocation.
-        historique = self.historique.model_copy(deep=True)
-        historique.add_user_message(question)
-        reponse = await self.service.get_chat_message_content(
-            chat_history=historique, settings=self.settings, kernel=self.kernel,
-        )
-        if reponse is None or not reponse.content or not reponse.content.strip():
-            raise ValueError("Le modele a renvoye une reponse vide.")
-        historique.add_message(reponse)
-        self.historique = historique
-        return reponse.content
+        configurer_logs()
+        debut = time.perf_counter()
+        statut = "error"
+        with contexte_requete() as contexte:
+            try:
+                if not question.strip():
+                    raise ValueError("La question ne peut pas etre vide.")
+                # SK ajoute les appels et resultats d'outils a cet historique pendant l'invocation.
+                historique = self.historique.model_copy(deep=True)
+                historique.add_user_message(question)
+                reponse = await self.service.get_chat_message_content(
+                    chat_history=historique, settings=self.settings, kernel=self.kernel,
+                )
+                if reponse is None or not reponse.content or not reponse.content.strip():
+                    raise ValueError("Le modele a renvoye une reponse vide.")
+                historique.add_message(reponse)
+                self.historique = historique
+                statut = "success"
+                return reponse.content
+            except Exception as erreur:
+                journaliser(
+                    "request_failed",
+                    niveau=logging.ERROR,
+                    status=statut,
+                    tools=contexte.outils,
+                    duration_ms=round((time.perf_counter() - debut) * 1000, 2),
+                    error_type=type(erreur).__name__,
+                )
+                raise
+            finally:
+                if statut == "success":
+                    journaliser(
+                        "request_completed",
+                        status=statut,
+                        tools=contexte.outils,
+                        duration_ms=round((time.perf_counter() - debut) * 1000, 2),
+                        token_usage="unavailable",
+                    )
 
 
 def creer_agent():

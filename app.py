@@ -37,6 +37,29 @@ def afficher_outils(appels):
             st.json(appel["arguments"])
 
 
+def afficher_origine_reponse(reponse_en_cache):
+    if reponse_en_cache:
+        st.caption("Réponse reprise de l’historique, sans nouvel appel au modèle.")
+
+
+def afficher_consommation(consommation):
+    if consommation is None:
+        st.caption("Consommation de tokens indisponible.")
+        return
+
+    entree = consommation["tokens_entree"]
+    sortie = consommation["tokens_sortie"]
+    total = consommation["tokens_total"]
+
+    def formater_nombre(nombre):
+        return f"{nombre:,}".replace(",", " ")
+
+    st.caption(
+        f"Tokens : {formater_nombre(total)} au total "
+        f"({formater_nombre(entree)} en entrée, {formater_nombre(sortie)} en sortie)"
+    )
+
+
 def initialiser_agent():
     if "agent" not in st.session_state:
         with st.spinner("Chargement de l’assistant et des fiches fournisseurs…"):
@@ -69,6 +92,8 @@ def main():
             st.markdown(message["contenu"])
             if message["role"] == "assistant":
                 afficher_outils(message.get("outils", []))
+                afficher_origine_reponse(message.get("reponse_en_cache", False))
+                afficher_consommation(message.get("consommation"))
 
     question = st.chat_input("Écrivez votre question…")
     if not question or not question.strip():
@@ -88,13 +113,21 @@ def main():
         with st.chat_message("assistant"):
             with st.spinner("Recherche en cours…"):
                 reponse = agent.repondre(question)
-            appels = extraire_appels_outils(agent.messages[debut_historique:])
+            en_cache = agent.derniere_reponse_en_cache
+            appels = [] if en_cache else extraire_appels_outils(
+                agent.messages[debut_historique:]
+            )
             st.markdown(reponse)
             afficher_outils(appels)
+            afficher_origine_reponse(en_cache)
+            consommation = agent.derniere_consommation
+            afficher_consommation(consommation)
         st.session_state.conversation.append({
             "role": "assistant",
             "contenu": reponse,
             "outils": appels,
+            "consommation": consommation,
+            "reponse_en_cache": en_cache,
         })
     except (APIError, OSError, ValueError, PdfReadError) as erreur:
         st.error(f"La réponse n’a pas pu être générée : {erreur}")

@@ -1,16 +1,21 @@
 import json
+import logging
+import os
 import unittest
+from io import StringIO
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import mysql.connector
 from openai import AsyncAzureOpenAI
 from openai.types.chat import ChatCompletion
 from semantic_kernel.connectors.ai.open_ai import AzureChatCompletion
-from semantic_kernel.contents import AuthorRole
+from semantic_kernel.contents import AuthorRole, ChatMessageContent
 from semantic_kernel.functions import KernelArguments
 
 from agent import CatalogueMySQL
 from agent_sk import AgentSemanticKernel, CataloguePlugin, creer_agent
+from observabilite import FormateurJSON, LOGGER
 from rag_local import IndexLocal
 from test_rag_local import modele_simule
 
@@ -160,6 +165,40 @@ class KernelTests(unittest.IsolatedAsyncioTestCase):
             with self.assertRaises(ValueError):
                 await self.agent.repondre("Question")
         self.assertEqual(len(self.agent.historique.messages), 1)
+
+    async def test_logs_semantic_kernel_excluent_question_et_erreur(self):
+        sortie = StringIO()
+        handler = logging.StreamHandler(sortie)
+        handler.setFormatter(FormateurJSON())
+        LOGGER.addHandler(handler)
+        try:
+            with patch.dict(os.environ, {"LOG_LEVEL": "INFO"}):
+                self.agent.service = SimpleNamespace(
+                    get_chat_message_content=AsyncMock(
+                        return_value=ChatMessageContent(
+                            role=AuthorRole.ASSISTANT, content="Réponse"
+                        )
+                    )
+                )
+                await self.agent.repondre("Question privée")
+                self.agent.service = SimpleNamespace(
+                    get_chat_message_content=AsyncMock(
+                        side_effect=RuntimeError("Détail privé")
+                    )
+                )
+                with self.assertRaisesRegex(RuntimeError, "Détail privé"):
+                    await self.agent.repondre("Autre question privée")
+        finally:
+            LOGGER.removeHandler(handler)
+
+        evenements = [json.loads(ligne) for ligne in sortie.getvalue().splitlines()]
+        self.assertEqual(evenements[0]["evenement"], "request_completed")
+        self.assertEqual(evenements[0]["token_usage"], "unavailable")
+        self.assertEqual(evenements[1]["evenement"], "request_failed")
+        self.assertEqual(evenements[1]["error_type"], "RuntimeError")
+        self.assertNotIn("Question privée", sortie.getvalue())
+        self.assertNotIn("Autre question privée", sortie.getvalue())
+        self.assertNotIn("Détail privé", sortie.getvalue())
 
     async def test_question_mixte_telephone_sans_embeddings_azure(self):
         self.catalogue.rechercher_produits.return_value = {
