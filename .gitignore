@@ -15,6 +15,7 @@ env/
 .ruff_cache/
 .coverage
 htmlcov/
+test-results.xml
 
 # IDE and operating system files
 .idea/

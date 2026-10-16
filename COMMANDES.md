@@ -209,3 +209,25 @@ L'historique n'est pas sauvegardé après la fermeture du programme.
 | `401 Unauthorized` | Clé API incorrecte |
 | `404 DeploymentNotFound` | Nom de déploiement incorrect |
 | `ModuleNotFoundError: dotenv` | `.venv` non activé ou étape 4 oubliée |
+
+## Tests unitaires et pipeline GitHub Actions
+
+Lancer les tests localement, sans appeler Azure OpenAI :
+
+```powershell
+.\.venv\Scripts\python.exe -m pytest
+```
+
+Les tests couvrent les outils MySQL, le refus des écritures, ainsi que le
+découpage et la recherche RAG avec des services simulés. Les vérifications
+nécessitant une base MySQL sont ignorées localement ; le workflow GitHub
+Actions démarre un MySQL isolé, exécute `sql\00_mysql_base_et_utilisateur.sql`,
+`sql\01_schema.sql` et `sql\02_donnees.sql`, puis vérifie aussi l'accès en
+lecture seule et les données chargées. Chaque push sur `main` déclenche les
+tests ; `master` est aussi surveillée car c'est la branche par défaut actuelle
+du dépôt. Le rapport JUnit est publié comme artefact du workflow, et tout
+échec de test fait échouer le workflow.
+
+Ne pas committer `.env` ni de vraies clés ou mots de passe. `.env` est ignoré
+par Git ; utiliser `.env.example` comme modèle et remplacer ses valeurs
+indicatives uniquement dans le fichier local `.env`.
