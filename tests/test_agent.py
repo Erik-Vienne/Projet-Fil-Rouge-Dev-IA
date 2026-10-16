@@ -192,6 +192,16 @@ class AgentTests(unittest.TestCase):
             self.agent.repondre("Question")
         self.assertEqual(len(self.agent.messages), 1)
 
+    def test_nouvelle_conversation_reinitialise_historique(self):
+        self.agent.messages.extend([
+            {"role": "user", "content": "Question"},
+            {"role": "assistant", "content": "Reponse"},
+        ])
+        self.agent.nouvelle_conversation()
+        self.assertEqual(self.agent.messages, [
+            {"role": "system", "content": agent.SYSTEM_PROMPT}
+        ])
+
 
 if __name__ == "__main__":
     unittest.main()

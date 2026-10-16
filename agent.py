@@ -247,6 +247,9 @@ class Agent(CatalogueMySQL):
     def rechercher_fiches(self, recherche="", fournisseur=""):
         return chercher_fiches(self.morceaux, recherche, fournisseur)
 
+    def nouvelle_conversation(self):
+        self.messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+
     def repondre(self, question):
         messages = [*self.messages, {"role": "user", "content": question}]
         outils = {

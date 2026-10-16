@@ -30,6 +30,20 @@ le compte administrateur. Chaque requête s'exécute également dans une transac
 en lecture seule. Aucun outil ne permet d'envoyer du SQL libre.
 Les prix et valeurs de stock sont exprimés en euros HT.
 
+## Lot 3 : interface de chat web
+
+Après l'installation des dépendances et la configuration du fichier `.env`,
+lancer l'interface depuis la racine du projet :
+
+```powershell
+.\.venv\Scripts\python.exe -m streamlit run .\app.py
+```
+
+Le fil conserve le contexte pendant la session, les réponses sont rendues en
+Markdown et la barre latérale permet de démarrer une nouvelle conversation.
+Les appels d'outils effectués pour chaque réponse peuvent être consultés sous
+celle-ci.
+
 Exemples de conversation :
 « Quels produits sont en rupture ? », puis « Quels sont les délais de leurs fournisseurs ? ».
 Autres exemples : « Quels produits coûtent entre 50 et 200 euros HT ? »,

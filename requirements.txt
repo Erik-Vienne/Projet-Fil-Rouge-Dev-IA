@@ -5,3 +5,4 @@ mysql-connector-python>=9.0
 semantic-kernel>=1.39,<2
 sentence-transformers>=3,<6
 numpy>=1.26,<3
+streamlit>=1.40
