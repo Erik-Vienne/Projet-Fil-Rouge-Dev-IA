@@ -10,7 +10,9 @@ from semantic_kernel.contents import AuthorRole
 from semantic_kernel.functions import KernelArguments
 
 from agent import CatalogueMySQL
-from agent_sk import AgentSemanticKernel, CataloguePlugin
+from agent_sk import AgentSemanticKernel, CataloguePlugin, creer_agent
+from rag_local import IndexLocal
+from test_rag_local import modele_simule
 
 
 def completion(contenu=None, fonction=None, arguments=None):
@@ -91,9 +93,11 @@ class KernelTests(unittest.IsolatedAsyncioTestCase):
         self.catalogue.statistiques.return_value = {
             "resultats": [{"categorie": "Audio", "valeur_stock": "1200.00"}]
         }
-        self.agent = AgentSemanticKernel(self.service, self.catalogue, [
+        self.morceaux = [
             {"document": "NovaTech.pdf", "page": 1, "texte": "NovaTech : 3 jours"}
-        ])
+        ]
+        self.index = IndexLocal(self.morceaux, modele_simule())
+        self.agent = AgentSemanticKernel(self.service, self.catalogue, self.index)
 
     async def asyncTearDown(self):
         await self.client.close()
@@ -156,6 +160,71 @@ class KernelTests(unittest.IsolatedAsyncioTestCase):
             with self.assertRaises(ValueError):
                 await self.agent.repondre("Question")
         self.assertEqual(len(self.agent.historique.messages), 1)
+
+    async def test_question_mixte_telephone_sans_embeddings_azure(self):
+        self.catalogue.rechercher_produits.return_value = {
+            "source": "Base MySQL : produits",
+            "resultats": [{
+                "libelle": "Switch 24 ports Gigabit", "fournisseur": "NetLink Systemes",
+            }],
+        }
+        self.index.extraits[:] = [{
+            "document": "NetLink.pdf", "page": 2,
+            "texte": "NetLink Systemes : telephone 01 23 45 67 89",
+        }]
+        create = AsyncMock(side_effect=[
+            completion(
+                fonction="catalogue-rechercher_produits",
+                arguments={"mot_cle": "Switch 24 ports"},
+            ),
+            completion(
+                fonction="fiches-rechercher_fiches",
+                arguments={"recherche": "telephone",
+                           "fournisseur": "NetLink Systemes"},
+            ),
+            completion(
+                "01 23 45 67 89 [NetLink.pdf, page 2] [Base MySQL : produits]."
+            ),
+        ])
+        with (
+            patch.object(self.client.chat.completions, "create", create),
+            patch.object(self.client.embeddings, "create", AsyncMock()) as generer,
+        ):
+            texte = await self.agent.repondre(
+                "Quel est le telephone du fournisseur du switch 24 ports ?"
+            )
+        self.catalogue.rechercher_produits.assert_called_once_with(
+            mot_cle="Switch 24 ports", categorie=""
+        )
+        generer.assert_not_awaited()
+        outils = [m for m in self.agent.historique.messages if m.role == AuthorRole.TOOL]
+        self.assertEqual(len(outils), 2)
+        resultat = json.loads(str(outils[-1].items[0]))
+        self.assertEqual(resultat["resultats"][0]["document"], "NetLink.pdf")
+        self.assertEqual(resultat["recherche"], "semantique locale")
+        self.assertAlmostEqual(resultat["resultats"][0]["score"], 1)
+        self.assertIn("NetLink.pdf", texte)
+        self.assertIn("page 2", texte)
+
+    async def test_creation_sans_deploiement_embeddings_ni_appel_reseau(self):
+        with (
+            patch("agent_sk.charger_configuration", return_value={}),
+            patch.dict("os.environ", {
+                "AZURE_OPENAI_ENDPOINT": "https://test.openai.azure.com",
+                "AZURE_OPENAI_API_KEY": "test",
+                "CHAT_DEPLOYMENT": "test",
+                "EMBEDDING_DEPLOYMENT": "",
+            }),
+            patch("agent_sk.AsyncAzureOpenAI", return_value=self.client),
+            patch("agent_sk.charger_modele", return_value=modele_simule()),
+            patch.object(self.client.embeddings, "create", AsyncMock()) as embeddings,
+            patch.object(self.client.chat.completions, "create", AsyncMock()) as chat,
+        ):
+            agent = creer_agent()
+        embeddings.assert_not_awaited()
+        chat.assert_not_awaited()
+        self.assertEqual(len(agent.kernel.services), 1)
+        self.assertIn("fiches", agent.kernel.plugins)
 
 
 class RequetesTests(unittest.TestCase):

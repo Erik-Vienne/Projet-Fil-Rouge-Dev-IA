@@ -1,4 +1,4 @@
-"""Lot 1 : agent Semantic Kernel, catalogue MySQL et fiches fournisseurs."""
+"""Agent Semantic Kernel : catalogue MySQL et embeddings locaux sur les fiches PDF."""
 
 import argparse
 import asyncio
@@ -29,8 +29,8 @@ from agent import (
     CatalogueMySQL,
     charger_configuration,
     charger_documents,
-    chercher_fiches,
 )
+from rag_local import IndexLocal, charger_modele
 
 
 def verifier_nombre(valeur, nom, entier=False):
@@ -119,36 +119,44 @@ class CataloguePlugin:
 
 
 class FichesPlugin:
-    def __init__(self, morceaux):
-        self.morceaux = morceaux
+    def __init__(self, index):
+        self.index = index
 
     @kernel_function(
-        description="Recherche lexicale dans tous les PDF fournisseurs avec fichier et page. "
-        "Sans recherche, lit toutes les fiches ; filtrage optionnel par fournisseur."
+        description="Recherche semantique locale dans les PDF fournisseurs avec fichier et page. "
+        "Sans recherche, lit toutes les fiches ; filtrage optionnel par fournisseur. "
+        "Citer le fichier et la page dans la reponse."
     )
-    def rechercher_fiches(
+    async def rechercher_fiches(
         self,
-        recherche: Annotated[str, "Mots cles ; vide pour toutes les pages"] = "",
+        recherche: Annotated[str, "Question en langage naturel ; vide pour toutes les pages"] = "",
         fournisseur: Annotated[str, "Nom du fournisseur ou reference FRN"] = "",
+        nombre: Annotated[int, "Maximum d'extraits semantiques, de 1 a 20"] = 5,
     ) -> str:
         return json.dumps(
-            chercher_fiches(self.morceaux, recherche, fournisseur), ensure_ascii=False
+            await asyncio.to_thread(self.index.rechercher, recherche, fournisseur, nombre),
+            ensure_ascii=False,
         )
 
 
 class AgentSemanticKernel:
-    def __init__(self, service, catalogue, morceaux):
+    def __init__(self, service, catalogue, index):
         self.kernel = Kernel()
         self.service = service
         self.kernel.add_service(service)
         self.kernel.add_plugin(CataloguePlugin(catalogue), plugin_name="catalogue")
-        self.kernel.add_plugin(FichesPlugin(morceaux), plugin_name="fiches")
+        self.kernel.add_plugin(FichesPlugin(index), plugin_name="fiches")
         self.settings = AzureChatPromptExecutionSettings(
             function_choice_behavior=FunctionChoiceBehavior.Auto(
                 maximum_auto_invoke_attempts=MAX_ETAPES,
             ),
         )
-        self.historique = ChatHistory(system_message=SYSTEM_PROMPT)
+        self.historique = ChatHistory(system_message=SYSTEM_PROMPT + """
+La recherche des fiches est semantique, avec des embeddings locaux.
+Les scores de similarite ne prouvent pas que l'extrait contient la reponse.
+Pour un contact lie a un produit, trouve d'abord son fournisseur dans MySQL,
+puis interroge les fiches en filtrant sur ce fournisseur.
+""")
 
     async def repondre(self, question: str) -> str:
         if not question.strip():
@@ -169,6 +177,7 @@ class AgentSemanticKernel:
 def creer_agent():
     config_bd = charger_configuration()
     morceaux = charger_documents(DOSSIER_FICHES)
+    index = IndexLocal(morceaux, charger_modele())
     client = AsyncAzureOpenAI(
         azure_endpoint=os.environ["AZURE_OPENAI_ENDPOINT"].rstrip("/"),
         api_key=os.environ["AZURE_OPENAI_API_KEY"],
@@ -180,7 +189,7 @@ def creer_agent():
         deployment_name=os.environ["CHAT_DEPLOYMENT"],
         async_client=client,
     )
-    return AgentSemanticKernel(service, CatalogueMySQL(config_bd), morceaux)
+    return AgentSemanticKernel(service, CatalogueMySQL(config_bd), index)
 
 
 async def main():

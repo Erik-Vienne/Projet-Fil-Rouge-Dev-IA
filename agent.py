@@ -31,7 +31,7 @@ Pour une question mixte, croise les DEUX sources en reliant le nom du fournisseu
 Pour filtrer des produits selon un critere documentaire (pays, delai, etc.),
 consulte d'abord les fiches puis recherche les produits des fournisseurs retenus.
 Consulte toutes les fiches pour comparer tous les fournisseurs : une recherche
-vide renvoie toutes les pages. Une recherche par mots est lexicale, pas semantique.
+vide renvoie toutes les pages.
 Si elle ne trouve rien, reformule ou consulte toutes les fiches.
 Ne presente pas un resultat tronque comme exhaustif.
 Cite les sources : [Base MySQL : produits] et [nom_du_fichier.pdf, page N].

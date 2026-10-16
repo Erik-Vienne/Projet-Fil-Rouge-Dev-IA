@@ -18,9 +18,11 @@ somme des prix unitaires HT multipliés par les quantités).
 `FunctionChoiceBehavior.Auto` laisse le modèle choisir et appeler les outils,
 avec au maximum huit étapes automatiques avant synthèse.
 `ChatHistory` conserve les échanges, appels d'outils et résultats pendant la session.
-Un plugin `fiches` conserve la recherche PDF pour les questions mixtes.
+Un plugin `fiches` expose la recherche sémantique PDF avec embeddings locaux.
 
 Les variables `.env` sont les mêmes que pour `agent.py`.
+Aucun déploiement d'embeddings n'est nécessaire ; `EMBEDDING_DEPLOYMENT`, si encore
+présente dans un ancien `.env`, est ignorée.
 `AZURE_OPENAI_API_VERSION` est optionnelle (par défaut `2024-10-21`).
 Configurer `MYSQL_USER=agent_ia`, avec le mot de passe correspondant au compte
 limité à `SELECT` créé par `sql\00_mysql_base_et_utilisateur.sql` ; ne pas utiliser
@@ -32,7 +34,41 @@ Exemples de conversation :
 « Quels produits sont en rupture ? », puis « Quels sont les délais de leurs fournisseurs ? ».
 Autres exemples : « Quels produits coûtent entre 50 et 200 euros HT ? »,
 « Liste les produits du fournisseur ErgoMobil ».
-Les limites documentaires et SQL décrites ci-dessous s'appliquent aux deux agents.
+Les limites documentaires et SQL décrites ci-dessous s'appliquent aux deux agents,
+sauf la recherche lexicale, propre à `agent.py`.
+
+## Recherche PDF avec embeddings locaux
+
+Au démarrage, `agent_sk.py` découpe les pages selon la limite de tokens du modèle,
+avec chevauchement, puis calcule les embeddings sur CPU avec Sentence Transformers.
+Le modèle multilingue par défaut est
+`sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2`.
+Le premier lancement nécessite Internet pour télécharger ses fichiers depuis
+Hugging Face ; les suivants utilisent le cache local. Aucun texte PDF ni question
+n'est envoyé à Hugging Face pour la vectorisation. Le chargement et les calculs
+peuvent prendre du temps. Aucun compte Azure supplémentaire n'est nécessaire.
+
+`LOCAL_EMBEDDING_MODEL` peut désigner un autre modèle Sentence Transformers ou un
+dossier local contenant un modèle déjà téléchargé. Pour interdire toute connexion
+au Hub après téléchargement, définir `HF_HUB_OFFLINE=1`.
+L'index des PDF reste en mémoire et est reconstruit à chaque lancement.
+Une erreur de chargement ou d'indexation est signalée, sans repli lexical silencieux.
+
+L'outil `fiches-rechercher_fiches` classe les extraits par similarité cosinus,
+renvoie les cinq meilleurs par défaut (`nombre` de 1 à 20) et signale la troncature.
+Il conserve fichier, page et numéro d'extrait. Le filtre optionnel par fournisseur
+sélectionne toutes les pages de ses documents ; une recherche vide les consulte
+toutes. Un score ne garantit pas la présence de la réponse dans un extrait.
+Cette solution fournit un RAG sémantique, mais déroge à l'exigence du lot 2 de
+calculer les embeddings avec un service Azure OpenAI via Semantic Kernel.
+
+```powershell
+.\.venv\Scripts\python.exe .\agent_sk.py --question "Quel est le téléphone du fournisseur du switch 24 ports ?"
+```
+
+L'agent peut rechercher le produit dans MySQL, récupérer son fournisseur, puis
+interroger sa fiche et citer `[nom_du_fichier.pdf, page N]` ainsi que
+`[Base MySQL : produits]`. Seul le déploiement de chat Azure OpenAI est utilisé.
 
 ## Agent catalogue et fiches fournisseurs
 
