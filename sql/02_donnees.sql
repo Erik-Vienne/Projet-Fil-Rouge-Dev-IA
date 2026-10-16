@@ -1,0 +1,45 @@
+-- =============================================================
+-- Projet Agent IA - Données (38 produits, 8 fournisseurs)
+-- Données fictives à usage pédagogique
+-- =============================================================
+SET NAMES utf8mb4;
+
+INSERT INTO produits (id, libelle, categorie, prix, stock, fournisseur) VALUES
+(1, 'Ordinateur portable ProBook 14', 'Informatique', 899.00, 12, 'NovaTech Distribution'),
+(2, 'Ordinateur portable UltraSlim 13', 'Informatique', 1249.00, 4, 'NovaTech Distribution'),
+(3, 'Écran 24 pouces Full HD', 'Informatique', 159.90, 35, 'NovaTech Distribution'),
+(4, 'Écran 27 pouces 4K', 'Informatique', 349.00, 0, 'NovaTech Distribution'),
+(5, 'Station d''accueil USB-C', 'Informatique', 129.00, 18, 'NovaTech Distribution'),
+(6, 'Souris sans fil ergonomique', 'Informatique', 29.90, 120, 'NovaTech Distribution'),
+(7, 'Ramette papier A4 80 g (500 feuilles)', 'Papeterie', 5.49, 640, 'Papyrus & Co'),
+(8, 'Cahier à spirale A4 180 pages', 'Papeterie', 3.20, 210, 'Papyrus & Co'),
+(9, 'Lot de 10 stylos bille bleus', 'Papeterie', 4.90, 300, 'Papyrus & Co'),
+(10, 'Classeur à levier dos 8 cm', 'Papeterie', 3.75, 8, 'Papyrus & Co'),
+(11, 'Boîte d''archives (lot de 20)', 'Papeterie', 24.00, 45, 'Papyrus & Co'),
+(12, 'Siège ergonomique Confort+', 'Mobilier', 289.00, 9, 'ErgoMobil'),
+(13, 'Bureau assis-debout électrique 160 cm', 'Mobilier', 649.00, 3, 'ErgoMobil'),
+(14, 'Caisson de rangement 3 tiroirs', 'Mobilier', 189.00, 14, 'ErgoMobil'),
+(15, 'Armoire haute à rideaux', 'Mobilier', 459.00, 0, 'ErgoMobil'),
+(16, 'Repose-pieds réglable', 'Mobilier', 39.90, 25, 'ErgoMobil'),
+(17, 'Casque audio sans fil réduction de bruit', 'Audio', 199.00, 22, 'SonoriQ Audio'),
+(18, 'Micro-casque USB filaire', 'Audio', 49.90, 75, 'SonoriQ Audio'),
+(19, 'Enceinte de conférence Bluetooth', 'Audio', 149.00, 6, 'SonoriQ Audio'),
+(20, 'Barre de visioconférence 4K', 'Audio', 899.00, 2, 'SonoriQ Audio'),
+(21, 'Routeur professionnel double WAN', 'Réseau', 399.00, 7, 'NetLink Systèmes'),
+(22, 'Switch 24 ports Gigabit', 'Réseau', 279.00, 11, 'NetLink Systèmes'),
+(23, 'Borne Wi-Fi 6 plafond', 'Réseau', 189.00, 30, 'NetLink Systèmes'),
+(24, 'Pare-feu matériel PME', 'Réseau', 1190.00, 1, 'NetLink Systèmes'),
+(25, 'Câble réseau Cat6 5 m (lot de 10)', 'Réseau', 34.90, 90, 'NetLink Systèmes'),
+(26, 'Machine à café grain professionnelle', 'Café', 1490.00, 2, 'CaféoPro'),
+(27, 'Café en grains bio 1 kg', 'Café', 18.50, 150, 'CaféoPro'),
+(28, 'Capsules espresso (boîte de 100)', 'Café', 32.00, 0, 'CaféoPro'),
+(29, 'Gobelets compostables (lot de 500)', 'Café', 27.90, 60, 'CaféoPro'),
+(30, 'Gel hydroalcoolique 5 L', 'Hygiène', 24.90, 48, 'ClearHygiène Services'),
+(31, 'Essuie-mains papier (carton de 20 rouleaux)', 'Hygiène', 39.00, 33, 'ClearHygiène Services'),
+(32, 'Distributeur de savon automatique', 'Hygiène', 59.00, 5, 'ClearHygiène Services'),
+(33, 'Spray désinfectant surfaces 750 ml', 'Hygiène', 6.90, 220, 'ClearHygiène Services'),
+(34, 'Imprimante laser monochrome', 'Impression', 229.00, 10, 'VisioPrint'),
+(35, 'Imprimante multifonction couleur A3', 'Impression', 1890.00, 1, 'VisioPrint'),
+(36, 'Toner noir haute capacité', 'Impression', 89.00, 40, 'VisioPrint'),
+(37, 'Toner couleur (pack 3 couleurs)', 'Impression', 219.00, 7, 'VisioPrint'),
+(38, 'Papier photo A4 brillant (50 feuilles)', 'Impression', 15.90, 0, 'VisioPrint');
